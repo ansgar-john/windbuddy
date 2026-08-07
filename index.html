@@ -16,12 +16,18 @@
         p {
             font-size: 1.1em;
         }
+        p.data-source {
+            font-size: 0.9em;
+            font-style: italic;
+            /* color: #555; */
+        }
     </style>
 </head>
 <body>
     <h1>Windvisualisierung Steckborn</h1>
     <div id="plot"></div>
     <p id="latest">Lade Daten ...</p>
+    <p class="data-source">Quelle: MeteoSchweiz</p>
     <script type="module" src="./js/app.js"></script>
 </body>
 </html>

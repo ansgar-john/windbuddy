@@ -5,7 +5,7 @@ const FILES = {
     "VQHA80.csv": "https://data.geo.admin.ch/ch.meteoschweiz.messwerte-aktuell/VQHA80.csv"
 };
 
-async function fetchWithETag(filename, url) {
+async function fetchWithETag_old(filename, url) {
     const storedETag = localStorage.getItem(filename + "_etag");
     const headers = storedETag ? { "If-None-Match": storedETag } : {};
 
@@ -21,6 +21,21 @@ async function fetchWithETag(filename, url) {
     } else {
         console.error("Fehler beim Laden von", filename, response.status);
         return null;
+    }
+}
+
+async function fetchWithETag(filename, url) {
+    const response = await fetch(url, {
+        cache: "no-cache"
+    });
+
+    if (response.status === 200) {
+        const text = await response.text();
+        localStorage.setItem(filename + "_data", text);
+        return text;
+    } else {
+        console.error("Fehler beim Laden von", filename, response.status);
+        return localStorage.getItem(filename + "_data");
     }
 }
 
