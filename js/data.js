@@ -1,8 +1,11 @@
+import { fetchWithETag } from "./helper.js";
+
 export async function loadData(station) {
 
     const FILES = {
         "ogd-smn_STATION_t_now.csv": `https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/${station.toLowerCase()}/ogd-smn_${station.toLowerCase()}_t_now.csv`,
-        "VQHA80.csv": "https://data.geo.admin.ch/ch.meteoschweiz.messwerte-aktuell/VQHA80.csv"
+        "VQHA80.csv": "https://data.geo.admin.ch/ch.meteoschweiz.messwerte-aktuell/VQHA80.csv",
+        "stations.csv": "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/ogd-smn_meta_stations.csv"
     };
 
     const raw1 = await fetchWithETag("ogd-smn_STATION_t_now.csv", FILES["ogd-smn_STATION_t_now.csv"]);
@@ -13,40 +16,6 @@ export async function loadData(station) {
 
     const combined = prepareData(data1, data2);
     return combined;
-}
-
-async function fetchWithETag_old(filename, url) {
-    const storedETag = localStorage.getItem(filename + "_etag");
-    const headers = storedETag ? { "If-None-Match": storedETag } : {};
-
-    const response = await fetch(url, { headers });
-    if (response.status === 200) {
-        const etag = response.headers.get("ETag");
-        const text = await response.text();
-        localStorage.setItem(filename + "_etag", etag);
-        localStorage.setItem(filename + "_data", text);
-        return text;
-    } else if (response.status === 304) {
-        return localStorage.getItem(filename + "_data");
-    } else {
-        console.error("Fehler beim Laden von", filename, response.status);
-        return null;
-    }
-}
-
-async function fetchWithETag(filename, url) {
-    const response = await fetch(url, {
-        cache: "no-cache"
-    });
-
-    if (response.status === 200) {
-        const text = await response.text();
-        localStorage.setItem(filename + "_data", text);
-        return text;
-    } else {
-        console.error("Fehler beim Laden von", filename, response.status);
-        return localStorage.getItem(filename + "_data");
-    }
 }
 
 function parseCSV(text, filename, station) {
