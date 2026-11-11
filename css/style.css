@@ -14,3 +14,13 @@ p.data-source {
     font-style: italic;
     /* color: #555; */
 }
+#latest.error {
+    color: #c0392b;
+}
+#retryBtn {
+    font-family: inherit;
+    font-size: 1em;
+    padding: 0.35em 0.9em;
+    margin-bottom: 0.5em;
+    cursor: pointer;
+}

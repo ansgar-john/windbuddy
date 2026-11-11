@@ -1,5 +1,27 @@
 import Plotly from 'https://cdn.jsdelivr.net/npm/plotly.js-dist-min/+esm'
 
+// Wie weit die Zone `timeZone` zum Zeitpunkt `instant` von UTC abweicht (in ms,
+// positiv = östlich von UTC).
+function zoneAheadMs(instant, timeZone) {
+    const dtf = new Intl.DateTimeFormat("en-US", {
+        timeZone,
+        hour12: false,
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit"
+    });
+    const p = {};
+    for (const part of dtf.formatToParts(instant)) p[part.type] = part.value;
+    const asUTC = Date.UTC(+p.year, +p.month - 1, +p.day, (+p.hour) % 24, +p.minute, +p.second);
+    return asUTC - Math.floor(instant.getTime() / 1000) * 1000;
+}
+
+// Verschiebung in ms, damit Plotly (rendert in Geräte-Ortszeit) für jedes
+// Gerät Zürich-Ortszeit anzeigt: (Zürich-Offset − Geräte-Offset).
+function zurichShiftMs() {
+    const now = new Date();
+    return zoneAheadMs(now, "Europe/Zurich") - (-now.getTimezoneOffset() * 60000);
+}
+
 export function createPlot(data) {
     const beaufort_limits = [0, 1, 6, 12, 20, 29, 39, 50, 62, 75, 89, 103, 118, Infinity];
     const beaufort_colors = [
@@ -7,11 +29,17 @@ export function createPlot(data) {
         "#ff9800", "#ff5722", "#f44336", "#e91e63", "#9c27b0", "#673ab7", "#3f51b5"
     ];
 
-    const timestamps = data.map(d => d.timestamp);
+    // X-Achse in Zürich-Ortszeit: Daten sind UTC, Plotly rendert in
+    // Geräte-Ortszeit → Zeitpunkte um den Offset verschieben.
+    const shift = zurichShiftMs();
+    const timestamps = data.map(d => new Date(d.timestamp.getTime() + shift));
     const windavg = data.map(d => d.windavg10m);
     const windmax = data.map(d => d.windmax1s);
 
-    const ymax = Math.max(...windmax.filter(n => n !== null)) + 1;
+    // Defensive: nur gültige Zahlen betrachten; ohne Werte → ymax=1 (kein
+    // -Infinity bei leerem Array).
+    const windSpeeds = [...windmax, ...windavg].filter(n => n !== null && !isNaN(n));
+    const ymax = (windSpeeds.length ? Math.max(...windSpeeds) : 0) + 1;
     const ymin = 0;
 
     const shapes = [];

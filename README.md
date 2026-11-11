@@ -4,7 +4,7 @@ Diese App zeigt aktuelle Winddaten aus Steckborn (CH) als interaktive Plotly-Gra
 
 ## Features
 - Holt Live-Daten von `data.geo.admin.ch`
-- Verwendet ETag + localStorage für Caching
+- ETag-Caching (`If-None-Match`/`304`) + localStorage (wiederverwendet bei 304, Fallback bei Fehlern)
 - Visualisiert Windgeschwindigkeit + Beaufortskala
 - Komplett im Browser – kein Server notwendig
 

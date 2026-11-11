@@ -1,17 +1,20 @@
 import { fetchWithETag } from "./helper.js";
 
 export async function loadData(station) {
+    const code = station.toLowerCase();
+    // Cache-Key pro Station, damit die ETags/Inhalte verschiedener Stationen
+    // sich nicht überschreiben.
+    const stationFile = `ogd-smn_${code}_t_now.csv`;
 
     const FILES = {
-        "ogd-smn_STATION_t_now.csv": `https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/${station.toLowerCase()}/ogd-smn_${station.toLowerCase()}_t_now.csv`,
-        "VQHA80.csv": "https://data.geo.admin.ch/ch.meteoschweiz.messwerte-aktuell/VQHA80.csv",
-        "stations.csv": "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/ogd-smn_meta_stations.csv"
+        [stationFile]: `https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/${code}/${stationFile}`,
+        "VQHA80.csv": "https://data.geo.admin.ch/ch.meteoschweiz.messwerte-aktuell/VQHA80.csv"
     };
 
-    const raw1 = await fetchWithETag("ogd-smn_STATION_t_now.csv", FILES["ogd-smn_STATION_t_now.csv"]);
+    const raw1 = await fetchWithETag(stationFile, FILES[stationFile]);
     const raw2 = await fetchWithETag("VQHA80.csv", FILES["VQHA80.csv"]);
 
-    const data1 = parseCSV(raw1, "ogd-smn_STATION_t_now.csv", station);
+    const data1 = parseCSV(raw1, stationFile, station);
     const data2 = parseCSV(raw2, "VQHA80.csv", station);
 
     const combined = prepareData(data1, data2);
@@ -42,34 +45,32 @@ function parseCSV(text, filename, station) {
 
 // parse e.g. "202608071310"
 function parseDateYYYYMMDDHHmm(ts) {
-    return new Date(
-        Date.UTC(
-            parseInt(ts.substring(0, 4)),
-            parseInt(ts.substring(4, 6)) - 1,
-            parseInt(ts.substring(6, 8)),
-            parseInt(ts.substring(8, 10)),
-            parseInt(ts.substring(10, 12))
-        )
-    );
+    const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(ts);
+    if (!m) return new Date(NaN);
+    return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]));
 }
 
 // parse e.g. "07.08.2026 04:50"
 function parseEuropeanDateTime(ts) {
-    const [date, time] = ts.split(" ");
-    const [day, month, year] = date.split(".");
-    const [hour, minute] = time.split(":");
-
-    return new Date(Date.UTC(
-        year,
-        month - 1,
-        day,
-        hour,
-        minute
-    ));
+    const m = /^(\d{2})\.(\d{2})\.(\d{4}) (\d{2}):(\d{2})$/.exec(ts);
+    if (!m) return new Date(NaN);
+    return new Date(Date.UTC(+m[3], +m[2] - 1, +m[1], +m[4], +m[5]));
 }
 
 function prepareData(data1, data2) {
-    const combined = data1.concat(data2).filter(d => !isNaN(d.timestamp));
+    const all = data1.concat(data2);
+    const combined = all.filter(d => !isNaN(d.timestamp));
+    const dropped = all.length - combined.length;
+
+    // Kein einziger gültiger Zeitpunkt → Systemfehler (z. B. geändertes
+    // Datenformat) → Fehler anwerfen, damit die App ihn anzeigt.
+    if (combined.length === 0) {
+        throw new Error("Keine gültigen Messdaten erhalten – unerwartetes Datenformat?");
+    }
+    if (dropped > 0) {
+        console.warn(`Windbuddy: ${dropped} Zeile(n) mit ungültigem Zeitstempel verworfen.`);
+    }
+
     combined.sort((a, b) => a.timestamp - b.timestamp);
     return combined;
 }
