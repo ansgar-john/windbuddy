@@ -50,3 +50,23 @@ async function storeAndReturn(response, filename, encoding) {
     localStorage.setItem(filename + "_data", text);
     return text;
 }
+
+// Liefert null statt NaN, behält aber gültige Werte wie 0.
+export function toNumber(value) {
+    const n = parseFloat(value);
+    return Number.isFinite(n) ? n : null;
+}
+
+// Parst eine semikolon-getrennte CSV in ein Array von Objekten;
+// die erste Zeile liefert die Feldnamen.
+export function parseCSV(text) {
+    const rows = text.split("\n").filter(r => r.trim().length);
+    const headers = rows[0].split(";");
+
+    return rows.slice(1).map(row => {
+        const cols = row.split(";");
+        const obj = {};
+        headers.forEach((h, i) => obj[h] = cols[i]);
+        return obj;
+    });
+}

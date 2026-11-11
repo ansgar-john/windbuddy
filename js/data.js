@@ -1,4 +1,7 @@
-import { fetchWithETag } from "./helper.js";
+import { fetchWithETag, parseCSV, toNumber } from "./helper.js";
+
+const BASE_URL = "https://data.geo.admin.ch";
+const VQHA80_FILE = "VQHA80.csv";
 
 export async function loadData(station) {
     const code = station.toLowerCase();
@@ -6,41 +9,41 @@ export async function loadData(station) {
     // sich nicht überschreiben.
     const stationFile = `ogd-smn_${code}_t_now.csv`;
 
-    const FILES = {
-        [stationFile]: `https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/${code}/${stationFile}`,
-        "VQHA80.csv": "https://data.geo.admin.ch/ch.meteoschweiz.messwerte-aktuell/VQHA80.csv"
-    };
+    // Beide Dateien sind unabhängig → parallel laden.
+    const [rawStation, rawVq] = await Promise.all([
+        fetchWithETag(stationFile, `${BASE_URL}/ch.meteoschweiz.ogd-smn/${code}/${stationFile}`),
+        fetchWithETag(VQHA80_FILE, `${BASE_URL}/ch.meteoschweiz.messwerte-aktuell/${VQHA80_FILE}`)
+    ]);
 
-    const raw1 = await fetchWithETag(stationFile, FILES[stationFile]);
-    const raw2 = await fetchWithETag("VQHA80.csv", FILES["VQHA80.csv"]);
-
-    const data1 = parseCSV(raw1, stationFile, station);
-    const data2 = parseCSV(raw2, "VQHA80.csv", station);
-
-    const combined = prepareData(data1, data2);
-    return combined;
+    const data = parseStationFile(rawStation).concat(parseVqha80(rawVq, station));
+    return prepareData(data);
 }
 
-function parseCSV(text, filename, station) {
-    const rows = text.split("\n").filter(r => r.trim().length);
-    const headers = rows[0].split(";");
-    const data = rows.slice(1).map(row => {
-        const cols = row.split(";");
-        const obj = {};
-        headers.forEach((h, i) => obj[h] = cols[i]);
-        return obj;
-    });
+// Parst die Stationsdatei (ogd-smn_<station>_t_now.csv).
+function parseStationFile(text) {
+    return parseCSV(text).map(d => ({
+        timestamp: parseEuropeanDateTime(d["reference_timestamp"]),
+        ...measurements(d)
+    }));
+}
 
-    return data.map(d => {
-        let ts = filename === "VQHA80.csv" ? parseDateYYYYMMDDHHmm(d["Date"]) : parseEuropeanDateTime(d["reference_timestamp"]);
-        if (filename === "VQHA80.csv" && d["Station/Location"].toUpperCase() !== station) return null;
-        return {
-            timestamp: ts,
-            windavg10m: parseFloat(d["fu3010z0"]) || null,
-            windmax1s: parseFloat(d["fu3010z1"]) || null,
-            windrichtung: parseFloat(d["dkl010z0"]) || null
-        };
-    }).filter(x => x);
+// Parst die VQHA80-Datei und behält nur die Zeilen der gewünschten Station.
+function parseVqha80(text, station) {
+    return parseCSV(text)
+        .filter(d => d["Station/Location"].toUpperCase() === station)
+        .map(d => ({
+            timestamp: parseDateYYYYMMDDHHmm(d["Date"]),
+            ...measurements(d)
+        }));
+}
+
+// Die drei Messwerte, die beide Dateien gemeinsam haben.
+function measurements(d) {
+    return {
+        windavg10m: toNumber(d["fu3010z0"]),
+        windmax1s: toNumber(d["fu3010z1"]),
+        windrichtung: toNumber(d["dkl010z0"])
+    };
 }
 
 // parse e.g. "202608071310"
@@ -57,10 +60,9 @@ function parseEuropeanDateTime(ts) {
     return new Date(Date.UTC(+m[3], +m[2] - 1, +m[1], +m[4], +m[5]));
 }
 
-function prepareData(data1, data2) {
-    const all = data1.concat(data2);
-    const combined = all.filter(d => !isNaN(d.timestamp));
-    const dropped = all.length - combined.length;
+function prepareData(data) {
+    const combined = data.filter(d => !isNaN(d.timestamp));
+    const dropped = data.length - combined.length;
 
     // Kein einziger gültiger Zeitpunkt → Systemfehler (z. B. geändertes
     // Datenformat) → Fehler anwerfen, damit die App ihn anzeigt.

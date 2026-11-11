@@ -1,76 +1,63 @@
-import Plotly from 'https://cdn.jsdelivr.net/npm/plotly.js-dist-min/+esm'
+import Plotly from "https://cdn.jsdelivr.net/npm/plotly.js-dist-min/+esm";
+import {
+    BEAUFORT_LIMITS,
+    BEAUFORT_COLORS,
+    beaufortIndex,
+    toZurichDisplayTime,
+    TEN_KNOTS_KMH
+} from "./wind.js";
 
-// Wie weit die Zone `timeZone` zum Zeitpunkt `instant` von UTC abweicht (in ms,
-// positiv = östlich von UTC).
-function zoneAheadMs(instant, timeZone) {
-    const dtf = new Intl.DateTimeFormat("en-US", {
-        timeZone,
-        hour12: false,
-        year: "numeric", month: "2-digit", day: "2-digit",
-        hour: "2-digit", minute: "2-digit", second: "2-digit"
-    });
-    const p = {};
-    for (const part of dtf.formatToParts(instant)) p[part.type] = part.value;
-    const asUTC = Date.UTC(+p.year, +p.month - 1, +p.day, (+p.hour) % 24, +p.minute, +p.second);
-    return asUTC - Math.floor(instant.getTime() / 1000) * 1000;
-}
+// 5 % Headroom über der Maximalgeschwindigkeit, damit die oberste Linie nicht
+// an den Rand der Grafik stößt.
+const YMAX_HEADROOM = 1.05;
+// Y-Position der Richtungspfeile: 4 % des Bereichs über der Unterkante.
+const ARROW_Y_FRACTION = 0.04;
 
-// Verschiebung in ms, damit Plotly (rendert in Geräte-Ortszeit) für jedes
-// Gerät Zürich-Ortszeit anzeigt: (Zürich-Offset − Geräte-Offset).
-function zurichShiftMs() {
-    const now = new Date();
-    return zoneAheadMs(now, "Europe/Zurich") - (-now.getTimezoneOffset() * 60000);
-}
-
-export function createPlot(data) {
-    const beaufort_limits = [0, 1, 6, 12, 20, 29, 39, 50, 62, 75, 89, 103, 118, Infinity];
-    const beaufort_colors = [
-        "#e0e0e0", "#e0e0e0", "#e0e0e0", "#2196f3", "#4caf50", "#ffeb3b",
-        "#ff9800", "#ff5722", "#f44336", "#e91e63", "#9c27b0", "#673ab7", "#3f51b5"
-    ];
-
-    // X-Achse in Zürich-Ortszeit: Daten sind UTC, Plotly rendert in
-    // Geräte-Ortszeit → Zeitpunkte um den Offset verschieben.
-    const shift = zurichShiftMs();
-    const timestamps = data.map(d => new Date(d.timestamp.getTime() + shift));
+export function createPlot(data, target = "plot") {
+    // X-Achse in Zürich-Ortszeit: Plotly rendert Datumswerte in der
+    // Geräte-Ortszeit, daher werden die UTC-Zeitpunkte pro Punkt verschoben
+    // (umstellungssicher – siehe wind.js).
+    const deviceOffsetNowMs = -new Date().getTimezoneOffset() * 60000;
+    const timestamps = data.map(d => toZurichDisplayTime(d.timestamp, deviceOffsetNowMs));
     const windavg = data.map(d => d.windavg10m);
     const windmax = data.map(d => d.windmax1s);
 
     // Defensive: nur gültige Zahlen betrachten; ohne Werte → ymax=1 (kein
     // -Infinity bei leerem Array).
     const windSpeeds = [...windmax, ...windavg].filter(n => n !== null && !isNaN(n));
-    const ymax = (windSpeeds.length ? Math.max(...windSpeeds) : 0) + 1;
+    const maxSpeed = windSpeeds.reduce((a, b) => Math.max(a, b), 0);
+    const ymax = Math.max(1, maxSpeed * YMAX_HEADROOM);
     const ymin = 0;
 
     const shapes = [];
 
     // colored background for beaufort
-    for (let i = 0; i < beaufort_limits.length - 1; i++) {
-        if (beaufort_limits[i] > ymax) break;
+    for (let i = 0; i < BEAUFORT_LIMITS.length - 1; i++) {
+        if (BEAUFORT_LIMITS[i] > ymax) break;
         shapes.push({
             type: "rect",
             xref: "paper",
             yref: "y",
             x0: 0,
             x1: 1,
-            y0: beaufort_limits[i],
-            y1: Math.min(beaufort_limits[i + 1], ymax),
-            fillcolor: beaufort_colors[i],
-            opacity: 0.2,
+            y0: BEAUFORT_LIMITS[i],
+            y1: Math.min(BEAUFORT_LIMITS[i + 1], ymax),
+            fillcolor: BEAUFORT_COLORS[i],
+            opacity: 0.25,
             line: { width: 0 },
             layer: "below"
         });
     }
 
-    // Horizontal line at y=18.51 (10 Knots)
+    // Horizontal line at 10 Knoten
     shapes.push({
         type: "line",
         xref: "paper",
         yref: "y",
         x0: 0,
         x1: 1,
-        y0: 18.51,
-        y1: 18.51,
+        y0: TEN_KNOTS_KMH,
+        y1: TEN_KNOTS_KMH,
         line: {
             color: "lightgray",
             dash: "dash",
@@ -82,33 +69,38 @@ export function createPlot(data) {
         x: timestamps,
         y: windavg,
         mode: "lines",
-        name: "avg 10m",
-        line: { dash: "solid" }
+        name: "Ø 10 min",
+        customdata: windavg.map(v => beaufortIndex(v)),
+        hovertemplate: "Ø %{y} km/h · %{customdata} Bft<extra></extra>",
+        line: { dash: "solid", color: "#1565c0", width: 2 }
     };
 
     const trace_max = {
         x: timestamps,
         y: windmax,
         mode: "lines",
-        name: "max 1s",
-        line: { dash: "dot" }
+        name: "Max 1 s",
+        customdata: windmax.map(v => beaufortIndex(v)),
+        hovertemplate: "Max %{y} km/h · %{customdata} Bft<extra></extra>",
+        line: { dash: "dot", color: "#ef6c00", width: 1.5 }
     };
 
-    const winddir = data.map(d => d.windrichtung);
-    const arrowY = ymin + 0.04 * (ymax - ymin);
+    // Nur Punkte mit tatsächlich gemessener Richtung; ein null würde sonst zu
+    // 180° werden (falscher Südpfeil).
+    const dirIdx = data.map((d, i) => (d.windrichtung != null ? i : null)).filter(i => i !== null);
+    const arrowY = ymin + ARROW_Y_FRACTION * (ymax - ymin);
 
     const trace_dir = {
-        x: timestamps,
-        y: Array(timestamps.length).fill(arrowY),
+        x: dirIdx.map(i => timestamps[i]),
+        y: dirIdx.map(() => arrowY),
         mode: "markers",
-        name: "",
-        showlegend: false,
+        name: "Richtung",
         hoverinfo: "skip",
         marker: {
             symbol: "arrow",
             size: 10,
             color: "black",
-            angle: winddir.map(dir => (dir + 180) % 360)
+            angle: dirIdx.map(i => (data[i].windrichtung + 180) % 360)
         }
     };
 
@@ -125,9 +117,14 @@ export function createPlot(data) {
 
     const layout = {
         height: 500,
-        margin: { l: 40, r: 60, t: 60, b: 40 },
+        margin: { l: 40, r: 60, t: 60, b: 55 },
         template: "plotly_white",
         shapes,
+        xaxis: {
+            title: { text: "Zeit (Ortszeit)" },
+            hoverformat: "%d.%m.%Y %H:%M",
+            automargin: true
+        },
         yaxis: {
             title: {
                 text: "Windgeschwindigkeit [km/h]",
@@ -148,8 +145,8 @@ export function createPlot(data) {
             overlaying: "y",
             side: "right",
             tickmode: "array",
-            tickvals: beaufort_limits.slice(0, -1),
-            ticktext: beaufort_limits.slice(0, -1).map((_, i) => i.toString()),
+            tickvals: BEAUFORT_LIMITS.slice(0, -1),
+            ticktext: BEAUFORT_LIMITS.slice(0, -1).map((_, i) => i.toString()),
             automargin: true,
             range: [ymin, ymax],
             showgrid: false
@@ -157,37 +154,26 @@ export function createPlot(data) {
         legend: {
             orientation: "h",
             x: 0, y: 1
-        }
+        },
+        annotations: [{
+            xref: "paper",
+            yref: "y",
+            x: 1.01,
+            y: TEN_KNOTS_KMH,
+            text: "10 kts",
+            showarrow: false,
+            xanchor: "left",
+            font: {
+                color: "gray",
+                size: 11
+            }
+        }]
     };
 
-    layout.annotations = [{
-        xref: "paper",
-        yref: "y",
-        x: 1.01,
-        y: 18.51,
-        text: "10 kts",
-        showarrow: false,
-        xanchor: "left",
-        font: {
-            color: "gray",
-            size: 11
-        }
-    }];
-
-    Plotly.newPlot(
-        "plot", 
-        [trace_avg, trace_max, trace_dir, trace_beaufort], 
-        layout, 
+    Plotly.react(
+        target,
+        [trace_avg, trace_max, trace_dir, trace_beaufort],
+        layout,
         { responsive: true }
     );
-
-    const latest = [...data].reverse().find(d => d.windavg10m !== null);
-    if (latest) {
-        const timeStr = new Intl.DateTimeFormat("de-CH", {
-            timeZone: "Europe/Zurich",
-            hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", year: "numeric"
-        }).format(latest.timestamp);
-        document.getElementById("latest").innerHTML = 
-            `Letzter Messwert: <strong>${latest.windavg10m.toFixed(1)} km/h</strong> um <strong>${timeStr}</strong>`;
-    }
 }

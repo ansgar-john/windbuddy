@@ -1,0 +1,8 @@
+{
+    "name": "windbuddy",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "test": "node test/smoke.mjs"
+    }
+}
