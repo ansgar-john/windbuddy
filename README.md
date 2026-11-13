@@ -34,6 +34,9 @@ Module in Node, benötigt Internetzugang zu `data.geo.admin.ch`):
 npm test        # oder: node test/smoke.mjs
 ```
 
+## Produktion
+https://ansgar-john.github.io/windbuddy/
+
 ## Datenquellen
 - [ogd-smn_stk_t_now.csv](https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/stk/ogd-smn_stk_t_now.csv)
 - [VQHA80.csv](https://data.geo.admin.ch/ch.meteoschweiz.messwerte-aktuell/VQHA80.csv)
